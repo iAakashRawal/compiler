@@ -3,413 +3,825 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeForge - Web Compiler</title>
+    <title>Interactive JS Compiler & Execution Visualizer</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Ace Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.min.js"></script>
+
+    <!-- Split.js for resizable panes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.5/split.min.js"></script>
 
     <style>
-        /* Custom Scrollbar Styles to match the original look */
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background-color: #334155; /* slate-700 */
-            border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background-color: #475569; /* slate-600 */
-        }
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
         
-        /* Hide scrollbar for line numbers but keep functionality */
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
+        /* Token & Active Element Styles */
+        .token-badge { transition: all 0.3s ease; }
+        .active-element { box-shadow: 0 0 15px 5px rgba(56, 189, 248, 0.4); border-color: #38bdf8 !important; transform: scale(1.05); }
+        .tree-line { border-left: 2px solid #334155; margin-left: 12px; padding-left: 12px; margin-top: 4px; }
+        
+        pre, code, .font-mono { font-family: 'Fira Code', 'Courier New', Courier, monospace; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Split.js Gutter Styles */
+        .split { display: flex; flex-direction: row; height: 100%; width: 100%; }
+        .gutter { background-color: #1e293b; background-repeat: no-repeat; background-position: 50%; cursor: col-resize; transition: background-color 0.2s; position: relative; z-index: 10;}
+        .gutter:hover { background-color: #38bdf8; }
+        .gutter.gutter-horizontal { cursor: col-resize; }
+        
+        #editor-container { width: 100%; height: 100%; min-height: 300px; border-radius: 0 0 0.75rem 0.75rem; }
+        .ace_editor { background-color: transparent !important; }
+        .ace_gutter { background-color: rgba(15, 23, 42, 0.5) !important; color: #64748b !important; border-right: 1px solid #334155;}
     </style>
 </head>
-<body class="bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30 overflow-hidden h-screen flex flex-col md:flex-row">
+<body class="h-screen w-screen overflow-hidden flex flex-col">
 
-    <!-- Sidebar Navigation -->
-    <aside class="w-full md:w-16 lg:w-20 bg-slate-900 border-r border-slate-800 flex flex-row md:flex-col items-center py-4 gap-4 z-10 shrink-0">
-        <div class="bg-blue-600 p-2 rounded-lg mb-0 md:mb-4 shadow-lg shadow-blue-500/20">
-            <i data-lucide="code-2" class="w-6 h-6 text-white"></i>
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-20 shadow-md">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-code-compare text-sky-400 text-2xl"></i>
+            <h1 class="text-xl font-bold text-white tracking-wide">JS Visual Compiler <span class="text-sky-500 font-mono text-sm">v2.0</span></h1>
+            <span class="bg-slate-800 border border-slate-700 text-xs px-2 py-1 rounded text-slate-300 ml-2 shadow-inner">
+                Now supports <code>function()</code>
+            </span>
         </div>
-        
-        <nav class="flex flex-row md:flex-col gap-2 w-full px-2">
-            <button class="p-3 rounded-lg bg-slate-800 text-blue-400 flex justify-center items-center w-full md:w-auto">
-                <i data-lucide="file-code" class="w-5 h-5"></i>
-            </button>
-            <button class="p-3 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 transition-colors flex justify-center items-center w-full md:w-auto">
-                <i data-lucide="settings" class="w-5 h-5"></i>
-            </button>
-        </nav>
-    </aside>
-
-    <!-- Main Content Area -->
-    <main class="flex-1 flex flex-col h-screen overflow-hidden">
-        
-        <!-- Header / Toolbar -->
-        <header class="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 shrink-0">
-            <div class="flex items-center gap-3">
-                <span class="font-semibold tracking-tight text-slate-100">main.js</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 font-medium">JavaScript</span>
+        <div class="flex gap-4 items-center">
+            <div class="flex items-center gap-2 text-sm mr-4 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                <label for="speed" class="text-slate-400"><i class="fa-solid fa-gauge-high mr-1"></i>Speed</label>
+                <input type="range" id="speed" min="50" max="1000" value="400" class="accent-sky-500 w-24">
             </div>
+            <button id="stepBtn" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white transition font-medium flex items-center gap-2 shadow-[0_0_10px_rgba(79,70,229,0.3)]"><i class="fa-solid fa-shoe-prints"></i> Step Mode</button>
+            <button id="nextBtn" class="hidden px-6 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 transition font-bold items-center gap-2 shadow-[0_0_15px_rgba(251,191,36,0.5)]"><i class="fa-solid fa-forward-step"></i> Next</button>
+            <button id="resetBtn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white transition font-medium">Reset</button>
+            <button id="runBtn" class="px-6 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-900 transition font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(56,189,248,0.3)]">
+                <i class="fa-solid fa-play"></i> Auto Run
+            </button>
+        </div>
+    </header>
 
-            <div class="flex items-center gap-3">
-                <div class="hidden sm:flex items-center text-xs text-slate-500 gap-4 mr-4">
-                    <span class="flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> Compiler Ready</span>
-                    <span class="flex items-center gap-1.5"><i data-lucide="layers" class="w-3.5 h-3.5"></i> v1.0.4</span>
-                </div>
-                
-                <button id="runBtn" class="flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20">
-                    <i data-lucide="play" class="w-4 h-4 fill-current"></i>
-                    <span>Run</span>
-                </button>
-            </div>
-        </header>
-
-        <!-- Workspace Split -->
-        <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+    <!-- Main Workspace (Split.js Container) -->
+    <main class="flex-1 overflow-hidden p-2 bg-[#0b1120]">
+        <div class="split" id="split-main">
             
-            <!-- Editor Panel -->
-            <section class="flex-1 flex flex-col min-h-[300px] border-b lg:border-b-0 lg:border-r border-slate-800 relative group">
-                <!-- Line Numbers -->
-                <div id="lineNumbers" class="absolute top-0 left-0 w-10 h-full bg-slate-900/30 border-r border-slate-800/50 text-right pr-3 pt-4 text-slate-600 font-mono text-sm select-none pointer-events-none hidden sm:block overflow-hidden">
-                    <!-- Lines injected via JS -->
-                </div>
-                
-                <textarea id="codeEditor" spellcheck="false" class="flex-1 bg-slate-950 p-4 sm:pl-12 text-slate-300 font-mono text-sm leading-6 resize-none focus:outline-none custom-scrollbar selection:bg-blue-500/30 outline-none border-none">
-// Welcome to CodeForge
-// Write standard JavaScript here
-
-function fibonacci(n) {
-  if (n <= 1) return n;
-  return fibonacci(n - 1) + fibonacci(n - 2);
-}
-
-const n = 10;
-console.log("Generating Fibonacci for n=" + n);
-
-const result = fibonacci(n);
-console.log("Result: " + result);
-
-// Try calculating tokens!
-</textarea>
-                
-                <!-- Status Bar -->
-                <div class="h-8 bg-slate-900 border-t border-slate-800 flex items-center px-4 text-xs text-slate-500 justify-between select-none">
-                    <div class="flex gap-4">
-                        <span id="cursorPos">Ln 1, Col 1</span>
-                        <span>UTF-8</span>
+            <!-- PANE 1: Editor & Console -->
+            <div id="pane-editor" class="flex flex-col gap-2 h-full overflow-hidden px-1">
+                <!-- Source Code Editor -->
+                <div class="bg-slate-800 rounded-xl border border-slate-700 flex flex-col flex-[2] overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between items-center">
+                        <span class="text-xs font-semibold text-sky-400 uppercase tracking-wider"><i class="fa-solid fa-file-code mr-2"></i>Source Code</span>
+                        <span class="text-[10px] text-slate-500">Ace Editor Engine</span>
                     </div>
-                    <div id="buildStatus" class="flex gap-2 items-center">
-                        <!-- Status injected via JS -->
-                    </div>
-                </div>
-            </section>
-
-            <!-- Output / Analysis Panel -->
-            <section class="h-1/2 lg:h-auto lg:w-[450px] xl:w-[600px] bg-slate-900 flex flex-col shadow-2xl z-20">
-                
-                <!-- Panel Tabs -->
-                <div class="flex items-center border-b border-slate-800 bg-slate-925">
-                    <button id="tabConsole" class="flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors border-blue-500 text-blue-400 bg-slate-800/50">
-                        <i data-lucide="terminal" class="w-4 h-4"></i> Console
-                    </button>
-                    <button id="tabAnalysis" class="flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30">
-                        <i data-lucide="layout-template" class="w-4 h-4"></i> Lexer Analysis
-                    </button>
-                    <div class="ml-auto px-2">
-                        <button id="clearBtn" class="p-1.5 h-8 w-8 flex justify-center items-center rounded-md hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
+                    <div class="flex-1 relative bg-[#1d1f21]">
+                        <div id="editor-container"></div>
                     </div>
                 </div>
 
-                <!-- Panel Content -->
-                <div id="panelContent" class="flex-1 overflow-auto bg-slate-950/50 custom-scrollbar p-4 font-mono text-sm">
-                    <!-- Content injected via JS -->
-                    <div class="text-slate-600 italic flex items-center gap-2">
-                        <i data-lucide="chevron-right" class="w-4 h-4"></i> Waiting for execution...
+                <!-- Live Explainer (NEW) -->
+                <div class="bg-indigo-900/40 rounded-xl border border-indigo-500/50 flex flex-col flex-1 overflow-hidden shadow-lg relative">
+                    <div class="bg-indigo-900/80 px-4 py-2 border-b border-indigo-500/50 flex items-center gap-2">
+                        <i class="fa-solid fa-chalkboard-user text-indigo-300"></i>
+                        <span class="text-xs font-bold text-indigo-300 uppercase tracking-wider">Live Explainer</span>
+                        <span class="ml-auto text-[10px] text-indigo-400/70 bg-indigo-950 px-2 py-0.5 rounded-full animate-pulse border border-indigo-500/30" id="phaseIndicator">Waiting</span>
+                    </div>
+                    <div class="p-4 overflow-y-auto flex-1 flex items-center justify-center">
+                        <p id="explainerText" class="text-indigo-100 text-[15px] font-medium text-center leading-relaxed">
+                            Click <strong>Auto Run</strong> or <strong>Step Mode</strong> to start learning how the compiler works!
+                        </p>
                     </div>
                 </div>
-            </section>
+
+                <!-- Console Output -->
+                <div class="bg-black rounded-xl border border-slate-700 flex flex-col flex-[1] overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700">
+                        <span class="text-xs font-semibold text-emerald-400 uppercase tracking-wider"><i class="fa-solid fa-terminal mr-2"></i>Terminal Output</span>
+                    </div>
+                    <div id="consoleContainer" class="p-4 font-mono text-sm text-green-400 overflow-y-auto flex-1 scrollbar-hide">
+                        > Editor ready... Wait for execution.
+                    </div>
+                </div>
+            </div>
+
+            <!-- PANE 2: Lexer & Parser -->
+            <div id="pane-ast" class="flex flex-col gap-2 h-full overflow-hidden px-1">
+                <!-- Lexer: Token Queue -->
+                <div class="bg-slate-800 rounded-xl border border-slate-700 flex flex-col flex-[1] overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700">
+                        <span class="text-xs font-semibold text-purple-400 uppercase tracking-wider"><i class="fa-solid fa-layer-group mr-2"></i>Token Queue (Lexer)</span>
+                    </div>
+                    <div id="tokenContainer" class="p-4 flex flex-wrap gap-2 overflow-y-auto content-start flex-1 bg-slate-900/30">
+                        <div class="text-slate-500 text-sm w-full text-center mt-6 italic">Tokens will stream here...</div>
+                    </div>
+                </div>
+
+                <!-- Parser: AST -->
+                <div class="bg-slate-800 rounded-xl border border-slate-700 flex flex-col flex-[2] overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700">
+                        <span class="text-xs font-semibold text-amber-400 uppercase tracking-wider"><i class="fa-solid fa-network-wired mr-2"></i>AST (Parser)</span>
+                    </div>
+                    <div class="p-4 overflow-y-auto flex-1 font-mono text-sm bg-slate-900/30" id="astContainer">
+                        <div class="text-slate-500 text-center mt-10 italic font-sans">Tree builds during Syntactic Analysis.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PANE 3: Execution Engine -->
+            <div id="pane-exec" class="flex flex-col gap-2 h-full overflow-hidden px-1">
+                <!-- Memory / Environment -->
+                <div class="bg-slate-800 rounded-xl border border-slate-700 flex flex-col flex-1 overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700 flex justify-between">
+                        <span class="text-xs font-semibold text-blue-400 uppercase tracking-wider"><i class="fa-solid fa-database mr-2"></i>Memory (Heap)</span>
+                    </div>
+                    <div class="p-4 overflow-y-auto flex-1 bg-slate-900/30" id="memoryContainer">
+                        <table class="w-full text-left text-sm">
+                            <thead><tr class="text-slate-500 border-b border-slate-700"><th class="pb-2">Identifier</th><th class="pb-2">Stored Value</th></tr></thead>
+                            <tbody id="memoryBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Call Stack -->
+                <div class="bg-slate-800 rounded-xl border border-slate-700 flex flex-col flex-1 overflow-hidden shadow-lg">
+                    <div class="bg-slate-900 px-4 py-2 border-b border-slate-700">
+                        <span class="text-xs font-semibold text-rose-400 uppercase tracking-wider"><i class="fa-solid fa-layer-group mr-2"></i>Call Stack</span>
+                    </div>
+                    <div class="p-4 overflow-y-auto flex-1 flex flex-col-reverse gap-2 bg-slate-900/30" id="stackContainer">
+                        <div class="text-slate-500 text-sm text-center mt-6 italic font-sans" id="emptyStackMsg">Stack is empty</div>
+                    </div>
+                </div>
+            </div>
 
         </div>
     </main>
 
     <script>
-        // --- State Management ---
-        const state = {
-            code: document.getElementById('codeEditor').value,
-            output: [],
-            tokens: [],
-            activeTab: 'console', // 'console' | 'analysis'
-            isCompiling: false,
-            status: 'ready'
-        };
+        // --- Setup Resizable Panes ---
+        Split(['#pane-editor', '#pane-ast', '#pane-exec'], {
+            sizes: [35, 35, 30],
+            minSize: [250, 250, 250],
+            gutterSize: 6,
+            snapOffset: 0
+        });
 
-        // --- DOM Elements ---
+        // --- Setup Ace Code Editor ---
+        ace.require("ace/ext/language_tools");
+        const editor = ace.edit("editor-container");
+        editor.setTheme("ace/theme/tomorrow_night_eighties");
+        editor.session.setMode("ace/mode/javascript");
+        editor.setOptions({
+            fontSize: "14px",
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: true,
+            showPrintMargin: false,
+            fontFamily: "'Fira Code', monospace"
+        });
+
+        const defaultCode = 
+`// Let's learn how JavaScript compiles!
+
+// 1. First, we allocate variables in memory
+let price = 100;
+let tax = 5;
+
+// 2. We define a function (stored in memory for later)
+function calculateTotal(p, t) {
+    return p + t;
+}
+
+// 3. Finally, we call the function and execute its block
+let total = calculateTotal(price, tax);`;
+        
+        editor.setValue(defaultCode, -1);
+
+        // --- UI Elements ---
         const els = {
-            editor: document.getElementById('codeEditor'),
-            lineNumbers: document.getElementById('lineNumbers'),
-            cursorPos: document.getElementById('cursorPos'),
-            buildStatus: document.getElementById('buildStatus'),
+            tokenContainer: document.getElementById('tokenContainer'),
+            astContainer: document.getElementById('astContainer'),
+            memoryBody: document.getElementById('memoryBody'),
+            stackContainer: document.getElementById('stackContainer'),
+            consoleContainer: document.getElementById('consoleContainer'),
+            emptyStackMsg: document.getElementById('emptyStackMsg'),
             runBtn: document.getElementById('runBtn'),
-            panelContent: document.getElementById('panelContent'),
-            tabConsole: document.getElementById('tabConsole'),
-            tabAnalysis: document.getElementById('tabAnalysis'),
-            clearBtn: document.getElementById('clearBtn')
+            stepBtn: document.getElementById('stepBtn'),
+            nextBtn: document.getElementById('nextBtn'),
+            resetBtn: document.getElementById('resetBtn'),
+            speedSlider: document.getElementById('speed'),
+            explainerText: document.getElementById('explainerText'),
+            phaseIndicator: document.getElementById('phaseIndicator')
         };
 
-        // --- Tokenizer Logic ---
-        const tokenize = (input) => {
-            const tokens = [];
-            let cursor = 0;
+        // --- Stepping Logic & Helpers ---
+        let isSteppingMode = false;
+        let resolveStep = null;
 
-            const TOKEN_TYPES = [
-                { type: 'KEYWORD', regex: /^\b(function|return|if|else|const|let|var|console|for|while|switch|case|break|continue|default|try|catch|finally|throw|class|extends|super|new|this|async|await|import|export|from|void|typeof|instanceof|do|in|of|with|debugger|yield)\b/ },
-                { type: 'BOOLEAN', regex: /^\b(true|false|null|undefined)\b/ },
-                { type: 'IDENTIFIER', regex: /^[a-zA-Z_$][a-zA-Z0-9_$]*/ },
-                { type: 'NUMBER', regex: /^\d+(\.\d+)?/ },
-                { type: 'STRING', regex: /^(['"`])(.*?)\1/ },
-                { type: 'OPERATOR', regex: /^[+\-*/%=<>!&|]+/ },
-                { type: 'PUNCTUATION', regex: /^[{}[\](),;.:]/ },
-                { type: 'WHITESPACE', regex: /^\s+/ },
-            ];
+        const getDelay = () => 1050 - els.speedSlider.value; 
+        
+        const waitNext = () => {
+            if (!isSteppingMode) return new Promise(r => setTimeout(r, getDelay()));
+            return new Promise(resolve => {
+                els.nextBtn.classList.add('animate-bounce');
+                resolveStep = resolve;
+            });
+        };
 
-            while (cursor < input.length) {
-                let match = null;
-                let text = input.slice(cursor);
+        function setExplainer(text, phase) {
+            els.explainerText.innerHTML = text;
+            els.phaseIndicator.textContent = phase;
+            if(phase === 'Lexer') els.phaseIndicator.className = 'ml-auto text-[10px] text-purple-300 bg-purple-900/50 px-2 py-0.5 border border-purple-500/50 rounded-full';
+            if(phase === 'Parser') els.phaseIndicator.className = 'ml-auto text-[10px] text-amber-300 bg-amber-900/50 px-2 py-0.5 border border-amber-500/50 rounded-full';
+            if(phase === 'Interpreter') els.phaseIndicator.className = 'ml-auto text-[10px] text-rose-300 bg-rose-900/50 px-2 py-0.5 border border-rose-500/50 rounded-full';
+        }
 
-                for (const { type, regex } of TOKEN_TYPES) {
-                    const result = regex.exec(text);
-                    if (result) {
-                        match = result[0];
-                        if (type !== 'WHITESPACE') {
-                            tokens.push({ type, value: match });
-                        }
-                        cursor += match.length;
-                        break;
+        function logConsole(msg, isError = false) {
+            const div = document.createElement('div');
+            div.textContent = `> ${msg}`;
+            div.className = isError ? 'text-red-400 font-bold' : 'text-green-400';
+            els.consoleContainer.appendChild(div);
+            els.consoleContainer.scrollTop = els.consoleContainer.scrollHeight;
+        }
+
+        function resetUI() {
+            els.tokenContainer.innerHTML = '';
+            els.astContainer.innerHTML = '';
+            els.memoryBody.innerHTML = '';
+            els.stackContainer.innerHTML = '<div class="text-slate-500 text-sm text-center mt-6 italic font-sans" id="emptyStackMsg">Stack is empty</div>';
+            els.consoleContainer.innerHTML = '> Editor ready...';
+            els.emptyStackMsg = document.getElementById('emptyStackMsg');
+            setExplainer("Click <strong>Auto Run</strong> or <strong>Step Mode</strong> to start learning how the compiler works!", "Waiting");
+            logConsole("System reset. Awaiting compilation.");
+        }
+
+        // ==========================================
+        // PHASE 1: LEXER (Tokenizer)
+        // ==========================================
+        function* tokenize(code) {
+            let current = 0;
+            let tokens = [];
+
+            while (current < code.length) {
+                let char = code[current];
+
+                if (/\s/.test(char)) { current++; continue; }
+
+                if ([';', '=', '+', '-', '*', '/', '(', ')', '{', '}', ','].includes(char)) {
+                    let type = ([';', '(', ')', '{', '}', ','].includes(char)) ? 'punct' : 'operator';
+                    tokens.push({ type, value: char, id: `tok_${tokens.length}` });
+                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found symbol <strong>${char}</strong>. Storing it as a <span class="text-purple-400">${type}</span> token.` };
+                    current++;
+                    continue;
+                }
+
+                if (/[0-9]/.test(char)) {
+                    let value = '';
+                    while (current < code.length && /[0-9]/.test(code[current])) {
+                        value += code[current];
+                        current++;
                     }
+                    tokens.push({ type: 'number', value, id: `tok_${tokens.length}` });
+                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found numeric characters. Grouping them into a <span class="text-amber-400">number</span> token: <strong>${value}</strong>` };
+                    continue;
                 }
 
-                if (!match) {
-                    cursor++; // Skip unknown characters
+                if (/[a-zA-Z_]/.test(char)) {
+                    let value = '';
+                    while (current < code.length && /[a-zA-Z0-9_]/.test(code[current])) {
+                        value += code[current];
+                        current++;
+                    }
+                    if (['let', 'const', 'function', 'return'].includes(value)) {
+                        tokens.push({ type: 'keyword', value, id: `tok_${tokens.length}` });
+                        yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Recognized reserved word <strong>${value}</strong>. Categorized as a <span class="text-purple-400">keyword</span> token.` };
+                    } else {
+                        tokens.push({ type: 'identifier', value, id: `tok_${tokens.length}` });
+                        yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found string of letters. Treating <strong>${value}</strong> as an <span class="text-blue-400">identifier</span> (variable/function name).` };
+                    }
+                    continue;
                 }
+
+                if(char === '/' && code[current+1] === '/') {
+                    while(current < code.length && code[current] !== '\n') current++;
+                    continue;
+                }
+
+                throw new TypeError(`Unknown character: ${char}`);
             }
             return tokens;
-        };
-
-        // --- UI Rendering ---
-
-        function updateLineNumbers() {
-            const lines = state.code.split('\n').length;
-            els.lineNumbers.innerHTML = Array(lines).fill(0).map((_, i) => `<div class="leading-6">${i + 1}</div>`).join('');
         }
 
-        function updateCursorPos() {
-            const text = els.editor.value;
-            const cursorPos = els.editor.selectionStart;
-            const lines = text.substring(0, cursorPos).split("\n");
-            const currentLine = lines.length;
-            const currentCol = lines[lines.length - 1].length + 1;
-            els.cursorPos.innerText = `Ln ${currentLine}, Col ${currentCol}`;
+        function renderTokens(tokens, activeIndex) {
+            els.tokenContainer.innerHTML = '';
+            tokens.forEach((t, i) => {
+                const badge = document.createElement('div');
+                let colors = "bg-slate-700 text-slate-300 border-slate-600";
+                if(t.type === 'keyword') colors = "bg-purple-900/50 text-purple-300 border-purple-700";
+                if(t.type === 'identifier') colors = "bg-blue-900/50 text-blue-300 border-blue-700";
+                if(t.type === 'number') colors = "bg-amber-900/50 text-amber-300 border-amber-700";
+                if(t.type === 'operator' || t.type === 'punct') colors = "bg-rose-900/50 text-rose-300 border-rose-700";
+                
+                badge.className = `px-2 py-1 rounded text-xs border ${colors} token-badge ${i === activeIndex ? 'active-element' : ''}`;
+                badge.id = t.id;
+                badge.innerHTML = `<span class="opacity-50 mr-1">${t.type}</span> <strong>${t.value}</strong>`;
+                els.tokenContainer.appendChild(badge);
+            });
+            els.tokenContainer.scrollTop = els.tokenContainer.scrollHeight;
         }
 
-        function updateTabs() {
-            const activeClass = "border-blue-500 text-blue-400 bg-slate-800/50";
-            const inactiveClass = "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30";
 
-            if (state.activeTab === 'console') {
-                els.tabConsole.className = `flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeClass}`;
-                els.tabAnalysis.className = `flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${inactiveClass}`;
-                renderConsole();
-            } else {
-                els.tabConsole.className = `flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${inactiveClass}`;
-                els.tabAnalysis.className = `flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeClass}`;
-                renderAnalysis();
+        // ==========================================
+        // PHASE 2: PARSER (Syntactic Analysis)
+        // ==========================================
+        function* parse(tokens) {
+            let current = 0;
+            let ast = { type: 'Program', body: [] };
+
+            function peek() { return tokens[current]; }
+            function consume() { return tokens[current++]; }
+
+            function* parseExpression() {
+                let token = consume();
+                let left;
+                
+                if (token.type === 'number') {
+                    left = { type: 'NumericLiteral', value: Number(token.value) };
+                    yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>NumericLiteral</strong> node for the number ${token.value}.` };
+                } else if (token.type === 'identifier') {
+                    left = { type: 'Identifier', name: token.value };
+                    yield { phase: 'parsing', activeToken: token.id, explain: `Creating an <strong>Identifier</strong> node looking for the variable/function '${token.value}'.` };
+                    
+                    if (current < tokens.length && tokens[current].value === '(') {
+                        let paren = consume(); // '('
+                        yield { phase: 'parsing', activeToken: paren.id, explain: `Found '('. This means '${left.name}' is being called as a function. Parsing arguments...` };
+                        
+                        let args = [];
+                        while (tokens[current].value !== ')') {
+                            let argIter = parseExpression();
+                            let argRes = argIter.next();
+                            while(!argRes.done) { yield argRes.value; argRes = argIter.next(); }
+                            args.push(argRes.value);
+                            if (tokens[current].value === ',') consume(); 
+                        }
+                        let endParen = consume(); // ')'
+                        yield { phase: 'parsing', activeToken: endParen.id, explain: `Finished parsing arguments for <strong>${left.name}()</strong>. Wrapping in a CallExpression.` };
+                        left = { type: 'CallExpression', callee: left.name, arguments: args };
+                    }
+                } else {
+                    throw new Error(`Unexpected token: ${token.value}`);
+                }
+
+                if (current < tokens.length && tokens[current].type === 'operator' && tokens[current].value !== '=') {
+                    let opToken = consume();
+                    yield { phase: 'parsing', activeToken: opToken.id, explain: `Found mathematical operator '<strong>${opToken.value}</strong>'. Building a BinaryExpression tree.` };
+                    
+                    let rightIter = parseExpression();
+                    let rightRes = rightIter.next();
+                    while(!rightRes.done) { yield rightRes.value; rightRes = rightIter.next(); }
+                    
+                    return { type: 'BinaryExpression', operator: opToken.value, left, right: rightRes.value };
+                }
+                return left;
             }
-        }
 
-        function renderConsole() {
-            if (state.output.length === 0) {
-                els.panelContent.innerHTML = `
-                    <div class="text-slate-600 italic flex items-center gap-2">
-                        <i data-lucide="chevron-right" class="w-4 h-4"></i> Waiting for execution...
-                    </div>`;
-            } else {
-                els.panelContent.innerHTML = state.output.map(log => `
-                    <div class="flex items-start gap-2 ${log.type === 'error' ? 'text-red-400 bg-red-950/30 p-2 rounded border border-red-900/50' : 'text-slate-300 border-l-2 border-slate-700 pl-2'}">
-                        <span class="opacity-50 select-none text-xs mt-1">&gt;</span>
-                        <span class="whitespace-pre-wrap break-all">${log.message}</span>
-                    </div>
-                `).join('');
+            function* parseStatement() {
+                let token = peek();
+                
+                if (token.type === 'keyword' && token.value === 'function') {
+                    consume(); 
+                    let idToken = consume();
+                    yield { phase: 'parsing', activeToken: idToken.id, explain: `Started parsing a <strong>Function Declaration</strong> named '${idToken.value}'. Gathering parameters...` };
+                    
+                    consume(); 
+                    let params = [];
+                    while(tokens[current].value !== ')') {
+                        params.push(consume().value);
+                        if(tokens[current].value === ',') consume();
+                    }
+                    consume(); 
+                    consume(); 
+                    
+                    yield { phase: 'parsing', activeToken: idToken.id, explain: `Parameters found: [${params.join(', ')}]. Now parsing the function's internal body block.` };
+
+                    let body = [];
+                    while(tokens[current].value !== '}') {
+                        let stmtIter = parseStatement();
+                        let stmtRes = stmtIter.next();
+                        while(!stmtRes.done) { yield stmtRes.value; stmtRes = stmtIter.next(); }
+                        body.push(stmtRes.value);
+                    }
+                    let endBrace = consume(); 
+                    yield { phase: 'parsing', activeToken: endBrace.id, explain: `Finished parsing function '${idToken.value}'. Adding it to the AST.` };
+                    
+                    return {
+                        type: 'FunctionDeclaration',
+                        id: idToken.value,
+                        params: params,
+                        body: { type: 'BlockStatement', body }
+                    };
+                }
+
+                if (token.type === 'keyword' && token.value === 'return') {
+                    let retToken = consume();
+                    yield { phase: 'parsing', activeToken: retToken.id, explain: `Found '<strong>return</strong>'. Evaluating what data to send back from the function.` };
+                    
+                    let argIter = parseExpression();
+                    let argRes = argIter.next();
+                    while(!argRes.done) { yield argRes.value; argRes = argIter.next(); }
+                    
+                    if (current < tokens.length && tokens[current].value === ';') consume();
+                    return { type: 'ReturnStatement', argument: argRes.value };
+                }
+                
+                if (token.type === 'keyword' && token.value === 'let') {
+                    consume(); 
+                    let idToken = consume();
+                    consume(); 
+                    
+                    yield { phase: 'parsing', activeToken: idToken.id, explain: `Found 'let'. Building a <strong>Variable Declaration</strong> for '${idToken.value}'. Waiting for its assigned value...` };
+
+                    let initIter = parseExpression();
+                    let initRes = initIter.next();
+                    while(!initRes.done) { yield initRes.value; initRes = initIter.next(); }
+                    
+                    if(current < tokens.length && tokens[current].value === ';') consume();
+                    return { type: 'VariableDeclaration', identifier: idToken.value, init: initRes.value };
+                } 
+                
+                let exprIter = parseExpression();
+                let exprRes = exprIter.next();
+                while(!exprRes.done) { yield exprRes.value; exprRes = exprIter.next(); }
+                if(current < tokens.length && tokens[current].value === ';') consume();
+                
+                return { type: 'ExpressionStatement', expression: exprRes.value };
             }
-            lucide.createIcons();
-            // Auto scroll to bottom
-            els.panelContent.scrollTop = els.panelContent.scrollHeight;
-        }
 
-        function renderAnalysis() {
-            if (state.tokens.length === 0) {
-                els.panelContent.innerHTML = '<div class="text-center text-slate-500 py-8">Run analysis to generate tokens</div>';
-                return;
+            while (current < tokens.length) {
+                let stmtIter = parseStatement();
+                let stmtRes = stmtIter.next();
+                while(!stmtRes.done) { yield stmtRes.value; stmtRes = stmtIter.next(); }
+                ast.body.push(stmtRes.value);
+                yield { phase: 'parsing_update_ast', ast: JSON.parse(JSON.stringify(ast)), explain: `Successfully added statement to the main syntax tree.` };
             }
 
-            const tokenGrid = state.tokens.map(token => {
-                let colorClass = 'text-slate-200';
-                if (token.type === 'KEYWORD') colorClass = 'text-purple-400';
-                else if (token.type === 'STRING') colorClass = 'text-green-400';
-                else if (token.type === 'NUMBER') colorClass = 'text-orange-400';
-                else if (token.type === 'OPERATOR') colorClass = 'text-blue-400';
-
-                return `
-                <div class="flex flex-col bg-slate-800 border border-slate-700 rounded p-2 text-xs font-mono">
-                    <span class="text-slate-400 text-[10px] uppercase tracking-wider mb-1">${token.type}</span>
-                    <span class="break-all ${colorClass}">${token.value}</span>
-                </div>`;
-            }).join('');
-
-            els.panelContent.innerHTML = `
-                <div class="space-y-4">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Token Stream</h3>
-                        <span class="text-xs text-slate-600">${state.tokens.length} tokens found</span>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                        ${tokenGrid}
-                    </div>
-                    <p class="text-xs text-slate-600 mt-4 border-t border-slate-800 pt-4">
-                        The lexer converts your source code string into a sequence of tokens. This is the first step in the compiler pipeline.
-                    </p>
-                </div>
-            `;
+            return ast;
         }
 
-        function updateBuildStatus(status) {
-            if (status === 'success') {
-                els.buildStatus.innerHTML = `<span class="text-green-500 flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Build Success</span>`;
-            } else if (status === 'error') {
-                els.buildStatus.innerHTML = `<span class="text-red-500 flex items-center gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> Build Failed</span>`;
-            } else {
-                els.buildStatus.innerHTML = '';
-            }
-            lucide.createIcons();
-        }
-
-        // --- Logic ---
-
-        async function runCode() {
-            state.isCompiling = true;
-            state.output = [];
-            state.activeTab = 'console';
-            updateTabs();
+        function renderAST(node, container) {
+            if (!node) return;
+            const div = document.createElement('div');
+            div.className = `tree-line text-slate-300`;
+            const head = document.createElement('div');
+            head.className = `inline-block px-2 py-0.5 rounded`;
             
-            // UI Loading State
-            els.runBtn.disabled = true;
-            els.runBtn.innerHTML = `
-                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Compiling...</span>
-            `;
+            if (node.type === 'Program' || node.type === 'BlockStatement') {
+                head.innerHTML = `<span class="text-purple-400 font-bold">${node.type}</span>`;
+                div.appendChild(head);
+                node.body.forEach(child => renderAST(child, div));
+            } 
+            else if (node.type === 'FunctionDeclaration') {
+                head.innerHTML = `<span class="text-fuchsia-400">FunctionDeclaration</span> <span class="text-slate-500">(${node.id})</span>`;
+                div.appendChild(head);
+                renderAST(node.body, div);
+            }
+            else if (node.type === 'CallExpression') {
+                head.innerHTML = `<span class="text-indigo-400">CallExpression</span> <span class="text-slate-500">(${node.callee})</span>`;
+                div.appendChild(head);
+                node.arguments.forEach(arg => renderAST(arg, div));
+            }
+            else if (node.type === 'ReturnStatement') {
+                head.innerHTML = `<span class="text-red-400">ReturnStatement</span>`;
+                div.appendChild(head);
+                renderAST(node.argument, div);
+            }
+            else if (node.type === 'VariableDeclaration') {
+                head.innerHTML = `<span class="text-sky-400">VariableDeclaration</span> <span class="text-slate-500">(let ${node.identifier})</span>`;
+                div.appendChild(head);
+                renderAST(node.init, div);
+            }
+            else if (node.type === 'ExpressionStatement') {
+                head.innerHTML = `<span class="text-amber-400">ExpressionStatement</span>`;
+                div.appendChild(head);
+                renderAST(node.expression, div);
+            }
+            else if (node.type === 'BinaryExpression') {
+                head.innerHTML = `<span class="text-rose-400">BinaryExpression</span> <span class="text-slate-500">(${node.operator})</span>`;
+                div.appendChild(head);
+                renderAST(node.left, div);
+                renderAST(node.right, div);
+            }
+            else if (node.type === 'NumericLiteral') {
+                head.innerHTML = `<span class="text-emerald-400">NumericLiteral</span> <span class="text-slate-400">(${node.value})</span>`;
+                div.appendChild(head);
+            }
+            else if (node.type === 'Identifier') {
+                head.innerHTML = `<span class="text-blue-400">Identifier</span> <span class="text-slate-400">(${node.name})</span>`;
+                div.appendChild(head);
+            }
+            container.appendChild(div);
+        }
 
-            // Simulate delay
-            await new Promise(r => setTimeout(r, 600));
+        // ==========================================
+        // PHASE 3: INTERPRETER (Execution Engine)
+        // ==========================================
+        function resolveEnv(env, name) {
+            if (name in env) return env;
+            if (env.__parent__) return resolveEnv(env.__parent__, name);
+            return null;
+        }
+
+        function* evaluate(node, env) {
+            let result;
+
+            if (node.type === 'Program' || node.type === 'BlockStatement') {
+                for (let stmt of node.body) {
+                    let iter = evaluate(stmt, env);
+                    let res = iter.next();
+                    while(!res.done) { yield res.value; res = iter.next(); }
+                    
+                    if (res.value && typeof res.value === 'object' && res.value.__isReturn) {
+                        return res.value; 
+                    }
+                    result = res.value; 
+                }
+            }
+            else if (node.type === 'FunctionDeclaration') {
+                env[node.id] = { type: 'Function', params: node.params, body: node.body, closure: env };
+                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Allocated the function <strong>${node.id}()</strong> into memory. It is ready to be called later.` }; 
+                logConsole(`Allocated function: ${node.id}()`);
+            }
+            else if (node.type === 'CallExpression') {
+                let resolved = resolveEnv(env, node.callee);
+                let func = resolved ? resolved[node.callee] : null;
+                if (!func || func.type !== 'Function') throw new Error(`'${node.callee}' is not a function`);
+
+                let evaluatedArgs = [];
+                for(let arg of node.arguments) {
+                    let argIter = evaluate(arg, env);
+                    let argRes = argIter.next();
+                    while(!argRes.done) { yield argRes.value; argRes = argIter.next(); }
+                    evaluatedArgs.push(argRes.value);
+                }
+
+                let frameId = 'frame_' + Math.random().toString(36).substr(2, 9);
+                yield { phase: 'exec', action: 'pushStack', nodeType: `Call: ${node.callee}()`, frameId, explain: `Calling <strong>${node.callee}()</strong>! Pausing the current work and pushing a new frame to the <strong>Call Stack</strong>.` };
+
+                let localEnv = { __parent__: func.closure };
+                func.params.forEach((p, i) => localEnv[p] = evaluatedArgs[i]);
+                yield { phase: 'exec', action: 'updateEnv', env: localEnv, explain: `Created a new Local Memory Environment for <strong>${node.callee}()</strong>. Assigned arguments to parameters.` };
+
+                let bodyIter = evaluate(func.body, localEnv);
+                let bodyRes = bodyIter.next();
+                while(!bodyRes.done) { yield bodyRes.value; bodyRes = bodyIter.next(); }
+                
+                yield { phase: 'exec', action: 'popStack', frameId, explain: `Function <strong>${node.callee}()</strong> finished! Popping it off the Call Stack and returning to the outer scope.` };
+                yield { phase: 'exec', action: 'updateEnv', env: env };
+
+                if (bodyRes.value && bodyRes.value.__isReturn) result = bodyRes.value.value;
+                else result = undefined; 
+                
+                logConsole(`${node.callee}() returned: ${result}`);
+            }
+            else if (node.type === 'ReturnStatement') {
+                let iter = evaluate(node.argument, env);
+                let res = iter.next();
+                while(!res.done) { yield res.value; res = iter.next(); }
+                
+                yield { phase: 'exec', explain: `Evaluated the return value to be <strong>${res.value}</strong>. Packaging it to send back to the caller.` };
+                return { __isReturn: true, value: res.value };
+            }
+            else if (node.type === 'VariableDeclaration') {
+                yield { phase: 'exec', explain: `Evaluating the right side of the assignment for <strong>${node.identifier}</strong>...` };
+                
+                let iter = evaluate(node.init, env);
+                let res = iter.next();
+                while(!res.done) { yield res.value; res = iter.next(); }
+                
+                env[node.identifier] = res.value;
+                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Stored <strong>${node.identifier}</strong> with a value of <strong>${res.value}</strong> into the Environment Memory.` };
+                logConsole(`Stored in memory: ${node.identifier} = ${res.value}`);
+                result = res.value;
+            }
+            else if (node.type === 'ExpressionStatement') {
+                let iter = evaluate(node.expression, env);
+                let res = iter.next();
+                while(!res.done) { yield res.value; res = iter.next(); }
+                result = res.value;
+            }
+            else if (node.type === 'BinaryExpression') {
+                let iterL = evaluate(node.left, env);
+                let resL = iterL.next();
+                while(!resL.done) { yield resL.value; resL = iterL.next(); }
+                let iterR = evaluate(node.right, env);
+                let resR = iterR.next();
+                while(!resR.done) { yield resR.value; resR = iterR.next(); }
+                
+                if (node.operator === '+') result = resL.value + resR.value;
+                if (node.operator === '-') result = resL.value - resR.value;
+                if (node.operator === '*') result = resL.value * resR.value;
+                if (node.operator === '/') result = resL.value / resR.value;
+                
+                yield { phase: 'exec', explain: `Performed Math: ${resL.value} ${node.operator} ${resR.value} = <strong>${result}</strong>` };
+            }
+            else if (node.type === 'NumericLiteral') {
+                result = node.value;
+            }
+            else if (node.type === 'Identifier') {
+                let resolved = resolveEnv(env, node.name);
+                if (!resolved) throw new ReferenceError(`${node.name} is not defined`);
+                result = resolved[node.name];
+                yield { phase: 'exec', explain: `Looked up variable <strong>${node.name}</strong> in memory. Found value: ${result}` };
+            }
+
+            return result;
+        }
+
+        // --- Execution UI Updaters ---
+        function pushStackUI(nodeType, frameId) {
+            if(els.emptyStackMsg) els.emptyStackMsg.style.display = 'none';
+            const div = document.createElement('div');
+            div.className = `p-3 rounded border border-rose-500/50 bg-rose-900/30 text-sm font-mono text-rose-200 shadow-lg transform transition-all duration-300 translate-x-[-10px] opacity-0`;
+            div.id = frameId;
+            div.innerHTML = `<i class="fa-solid fa-code-commit mr-2 text-rose-400"></i> ${nodeType}`;
+            els.stackContainer.prepend(div);
+            
+            requestAnimationFrame(() => {
+                div.classList.remove('translate-x-[-10px]', 'opacity-0');
+            });
+        }
+
+        function popStackUI(frameId) {
+            const el = document.getElementById(frameId);
+            if(el) {
+                el.classList.add('opacity-0', 'scale-95');
+                setTimeout(() => {
+                    el.remove();
+                    if(els.stackContainer.children.length === 1) { 
+                        if(els.emptyStackMsg) els.emptyStackMsg.style.display = 'block';
+                    }
+                }, 300);
+            }
+        }
+
+        function renderEnv(env) {
+            els.memoryBody.innerHTML = '';
+            for (let key in env) {
+                if (key === '__parent__') continue; 
+                
+                let valStr = env[key];
+                if (env[key] && typeof env[key] === 'object' && env[key].type === 'Function') {
+                    valStr = `<span class="text-fuchsia-300 italic">[Function block]</span>`;
+                }
+
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors";
+                tr.innerHTML = `
+                    <td class="py-2 px-1 font-mono text-blue-300 font-bold">${key}</td>
+                    <td class="py-2 px-1 font-mono text-emerald-300">${valStr}</td>
+                `;
+                els.memoryBody.appendChild(tr);
+            }
+            if(env.__parent__) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="2" class="py-2 px-1 text-xs text-slate-500 italic"><i class="fa-solid fa-link mr-1"></i> Inherits outer scope closure</td>`;
+                els.memoryBody.appendChild(tr);
+            }
+        }
+
+        // ==========================================
+        // MASTER CONTROLLER
+        // ==========================================
+        async function runPipeline(stepMode = false) {
+            isSteppingMode = stepMode;
+            els.runBtn.disabled = true;
+            els.stepBtn.disabled = true;
+            
+            if (isSteppingMode) {
+                els.nextBtn.style.display = 'flex';
+                els.stepBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Stepping...';
+            } else {
+                els.runBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+            }
+
+            editor.setReadOnly(true);
+            resetUI();
+            
+            const code = editor.getValue();
+            logConsole("Starting Lexical Analysis...");
 
             try {
-                // Lexical Analysis
-                state.tokens = tokenize(state.code);
-
-                // Execution Context
-                const customConsole = {
-                    log: (...args) => {
-                        const message = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
-                        state.output.push({ type: 'log', message });
-                        if(state.activeTab === 'console') renderConsole();
-                    },
-                    error: (...args) => {
-                        const message = args.map(String).join(' ');
-                        state.output.push({ type: 'error', message });
-                        if(state.activeTab === 'console') renderConsole();
-                    },
-                    warn: (...args) => {
-                         const message = '[WARN] ' + args.map(String).join(' ');
-                        state.output.push({ type: 'log', message });
-                        if(state.activeTab === 'console') renderConsole();
-                    }
-                };
-
-                const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+                // 1. Lexing
+                let tokens = [];
+                const lexerGenerator = tokenize(code);
+                let lexRes = lexerGenerator.next();
                 
-                // Execute
-                await new AsyncFunction('console', state.code)(customConsole);
+                while (!lexRes.done) {
+                    renderTokens(lexRes.value.tokens, lexRes.value.active);
+                    if(lexRes.value.explain) setExplainer(lexRes.value.explain, 'Lexer');
+                    await waitNext();
+                    lexRes = lexerGenerator.next();
+                }
+                tokens = lexRes.value;
+                renderTokens(tokens, -1);
+                logConsole(`Lexing complete. Extracted ${tokens.length} tokens.`);
+                setExplainer(`Lexer finished extracting ${tokens.length} tokens. Handing off flat array to the Parser.`, 'Lexer');
+                await waitNext();
 
-                updateBuildStatus('success');
+                // 2. Parsing
+                logConsole("Syntactic Analysis: Building AST Tree...");
+                let ast = null;
+                const parserGenerator = parse(tokens);
+                let parseRes = parserGenerator.next();
+                
+                els.astContainer.innerHTML = ''; 
+                
+                while (!parseRes.done) {
+                    if (parseRes.value.phase === 'parsing') {
+                        document.querySelectorAll('.token-badge').forEach(el => el.classList.remove('active-element'));
+                        const activeEl = document.getElementById(parseRes.value.activeToken);
+                        if(activeEl) {
+                            activeEl.classList.add('active-element');
+                            activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    } else if (parseRes.value.phase === 'parsing_update_ast') {
+                        els.astContainer.innerHTML = '';
+                        renderAST(parseRes.value.ast, els.astContainer);
+                    }
+                    if(parseRes.value.explain) setExplainer(parseRes.value.explain, 'Parser');
+                    await waitNext();
+                    parseRes = parserGenerator.next();
+                }
+                ast = parseRes.value;
+                
+                els.astContainer.innerHTML = '';
+                renderAST(ast, els.astContainer);
+                document.querySelectorAll('.token-badge').forEach(el => el.classList.remove('active-element'));
+                logConsole("Parsing complete. Engine is ready to execute.");
+                setExplainer("Abstract Syntax Tree created successfully. Handing structure to the Execution Engine.", "Parser");
+                await waitNext();
+
+                // 3. Execution
+                logConsole("Starting Interpretation...");
+                let globalFrame = 'frame_global';
+                pushStackUI('Global Execution Context', globalFrame);
+                setExplainer("Engine spins up! Creating the Global Execution Context and mounting it to the Call Stack.", "Interpreter");
+                await waitNext();
+
+                let env = {};
+                const execGenerator = evaluate(ast, env);
+                let execRes = execGenerator.next();
+
+                while (!execRes.done) {
+                    if (execRes.value.phase === 'exec') {
+                        if (execRes.value.action === 'pushStack') {
+                            pushStackUI(execRes.value.nodeType, execRes.value.frameId);
+                        } else if (execRes.value.action === 'popStack') {
+                            popStackUI(execRes.value.frameId);
+                        } else if (execRes.value.action === 'updateEnv') {
+                            renderEnv(execRes.value.env);
+                        }
+                    }
+                    if(execRes.value.explain) setExplainer(execRes.value.explain, 'Interpreter');
+                    await waitNext();
+                    execRes = execGenerator.next();
+                }
+                
+                popStackUI(globalFrame);
+                setExplainer(`Program completely finished with final result: <strong>${execRes.value === undefined ? 'undefined' : execRes.value}</strong>`, "Interpreter");
+                logConsole(`Program finished with final evaluation: ${execRes.value === undefined ? 'undefined' : execRes.value}`);
+
             } catch (err) {
-                state.output.push({ type: 'error', message: err.toString() });
-                renderConsole();
-                updateBuildStatus('error');
+                logConsole(`Compiler Error: ${err.message}`, true);
+                setExplainer(`<span class="text-red-300">Error encountered: ${err.message}</span>`, "Error");
+                console.error(err);
             } finally {
-                state.isCompiling = false;
-                // Reset Button
+                els.nextBtn.style.display = 'none';
                 els.runBtn.disabled = false;
-                els.runBtn.innerHTML = `
-                    <i data-lucide="play" class="w-4 h-4 fill-current"></i>
-                    <span>Run</span>
-                `;
-                lucide.createIcons();
+                els.stepBtn.disabled = false;
+                els.runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Auto Run';
+                els.stepBtn.innerHTML = '<i class="fa-solid fa-shoe-prints"></i> Step Mode';
+                editor.setReadOnly(false);
             }
         }
 
         // --- Event Listeners ---
-
-        els.editor.addEventListener('input', (e) => {
-            state.code = e.target.value;
-            updateLineNumbers();
+        els.runBtn.addEventListener('click', () => runPipeline(false));
+        els.stepBtn.addEventListener('click', () => runPipeline(true));
+        els.nextBtn.addEventListener('click', () => {
+            if (resolveStep) {
+                els.nextBtn.classList.remove('animate-bounce');
+                let res = resolveStep;
+                resolveStep = null;
+                res();
+            }
+        });
+        els.resetBtn.addEventListener('click', () => {
+            if(!els.runBtn.disabled && !els.stepBtn.disabled) resetUI();
         });
 
-        els.editor.addEventListener('scroll', () => {
-            // Sync line numbers scroll
-            els.lineNumbers.scrollTop = els.editor.scrollTop;
-        });
-        
-        // Sync scroll of line numbers to editor (to handle external adjustments)
-        els.editor.addEventListener('keyup', updateCursorPos);
-        els.editor.addEventListener('click', updateCursorPos);
-
-        els.runBtn.addEventListener('click', runCode);
-
-        els.tabConsole.addEventListener('click', () => {
-            state.activeTab = 'console';
-            updateTabs();
-        });
-
-        els.tabAnalysis.addEventListener('click', () => {
-            state.activeTab = 'analysis';
-            updateTabs();
-        });
-
-        els.clearBtn.addEventListener('click', () => {
-            state.output = [];
-            state.status = 'ready';
-            updateBuildStatus('ready');
-            renderConsole();
-        });
-
-        // --- Init ---
-        updateLineNumbers();
-        lucide.createIcons();
     </script>
 </body>
 </html>
