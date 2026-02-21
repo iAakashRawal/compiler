@@ -47,9 +47,9 @@
     <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-20 shadow-md">
         <div class="flex items-center gap-3">
             <i class="fa-solid fa-code-compare text-sky-400 text-2xl"></i>
-            <h1 class="text-xl font-bold text-white tracking-wide">JS Visual Compiler <span class="text-sky-500 font-mono text-sm">v2.1</span></h1>
+            <h1 class="text-xl font-bold text-white tracking-wide">JS Visual Compiler <span class="text-sky-500 font-mono text-sm">v2.5</span></h1>
             <span class="bg-slate-800 border border-slate-700 text-xs px-2 py-1 rounded text-slate-300 ml-2 shadow-inner">
-                Now supports <code>[]</code> Arrays & Strings
+                Now supports <code>console.log</code>, native methods, and complex operators!
             </span>
         </div>
         <div class="flex gap-4 items-center">
@@ -183,19 +183,21 @@
         });
 
         const defaultCode = 
-`// The compiler now understands Arrays and Strings!
+`// The compiler has been supercharged! 
+// It now understands complex operators, native methods, and dot notation.
 
-// 1. We allocate an array in memory
-let users = ["Alice", "Bob", "Charlie"];
-let scores = [85, 92, 78];
+let arr = [10, 20, 30];
 
-// 2. We can pass arrays/elements to functions
-function getRecord(user, score) {
-    return user + " scored " + score;
-}
+// We can use native JS array methods!
+arr.push(40); 
 
-// 3. We call the function accessing array indexes!
-let bestPlayer = getRecord(users[1], scores[1]);`;
+// We can use complex comparison operators
+let isGreater = arr[3] > 25;
+let isEqual = (arr[0] === 10);
+
+// And we can even trigger console.log!
+console.log("Is 40 > 25?", isGreater);
+console.log("Is first item exactly 10?", isEqual);`;
         
         editor.setValue(defaultCode, -1);
 
@@ -267,32 +269,59 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
             while (current < code.length) {
                 let char = code[current];
 
+                // Skip Whitespace
                 if (/\s/.test(char)) { current++; continue; }
 
-                // ADDED: Strings
-                if (char === '"' || char === "'") {
+                // Multi-line comments
+                if (char === '/' && code[current+1] === '*') {
+                    current += 2;
+                    while(current < code.length && !(code[current] === '*' && code[current+1] === '/')) current++;
+                    current += 2;
+                    continue;
+                }
+                
+                // Single-line comments
+                if (char === '/' && code[current+1] === '/') {
+                    while(current < code.length && code[current] !== '\n') current++;
+                    continue;
+                }
+
+                // Strings (Single, Double, Backticks)
+                if (char === '"' || char === "'" || char === "`") {
                     let quote = char;
                     let value = '';
-                    current++; // skip opening quote
+                    current++; 
                     while (current < code.length && code[current] !== quote) {
                         value += code[current];
                         current++;
                     }
-                    current++; // skip closing quote
+                    current++; 
                     tokens.push({ type: 'string', value, id: `tok_${tokens.length}` });
                     yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found a string literal: <strong>"${value}"</strong>.` };
                     continue;
                 }
 
-                // ADDED: Array Brackets [ and ]
-                if ([';', '=', '+', '-', '*', '/', '(', ')', '{', '}', ',', '[', ']'].includes(char)) {
-                    let type = ([';', '(', ')', '{', '}', ',', '[', ']'].includes(char)) ? 'punct' : 'operator';
-                    tokens.push({ type, value: char, id: `tok_${tokens.length}` });
-                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found symbol <strong>${char}</strong>. Storing it as a <span class="text-purple-400">${type}</span> token.` };
+                // Punctuation (Includes Dot '.' and Colon ':')
+                if (/[;(){},\[\].:]/.test(char)) {
+                    tokens.push({ type: 'punct', value: char, id: `tok_${tokens.length}` });
+                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found punctuation symbol <strong>${char}</strong>. Categorized as a <span class="text-purple-400">punct</span> token.` };
                     current++;
                     continue;
                 }
 
+                // Multi-character Operators (==, ===, >=, +=, &&, etc.)
+                if (/[=+\-*/<>!&|%^~?]/.test(char)) {
+                    let value = '';
+                    while (current < code.length && /[=+\-*/<>!&|%^~?]/.test(code[current])) {
+                        value += code[current];
+                        current++;
+                    }
+                    tokens.push({ type: 'operator', value, id: `tok_${tokens.length}` });
+                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Grouped symbol(s) <strong>${value}</strong>. Storing as an <span class="text-rose-400">operator</span> token.` };
+                    continue;
+                }
+
+                // Numbers
                 if (/[0-9]/.test(char)) {
                     let value = '';
                     while (current < code.length && /[0-9]/.test(code[current])) {
@@ -304,15 +333,19 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     continue;
                 }
 
-                if (/[a-zA-Z_]/.test(char)) {
+                // Identifiers & Keywords
+                if (/[a-zA-Z_$]/.test(char)) {
                     let value = '';
-                    while (current < code.length && /[a-zA-Z0-9_]/.test(code[current])) {
+                    while (current < code.length && /[a-zA-Z0-9_$]/.test(code[current])) {
                         value += code[current];
                         current++;
                     }
-                    if (['let', 'const', 'function', 'return'].includes(value)) {
+                    if (['let', 'const', 'var', 'function', 'return', 'if', 'else', 'for', 'while'].includes(value)) {
                         tokens.push({ type: 'keyword', value, id: `tok_${tokens.length}` });
                         yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Recognized reserved word <strong>${value}</strong>. Categorized as a <span class="text-purple-400">keyword</span> token.` };
+                    } else if (value === 'true' || value === 'false') {
+                        tokens.push({ type: 'boolean', value, id: `tok_${tokens.length}` });
+                        yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found boolean literal <strong>${value}</strong>.` };
                     } else {
                         tokens.push({ type: 'identifier', value, id: `tok_${tokens.length}` });
                         yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found string of letters. Treating <strong>${value}</strong> as an <span class="text-blue-400">identifier</span>.` };
@@ -320,12 +353,7 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     continue;
                 }
 
-                if(char === '/' && code[current+1] === '/') {
-                    while(current < code.length && code[current] !== '\n') current++;
-                    continue;
-                }
-
-                throw new TypeError(`Unknown character: ${char}`);
+                throw new TypeError(`Lexer Error: Unknown character: ${char}`);
             }
             return tokens;
         }
@@ -337,7 +365,7 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 let colors = "bg-slate-700 text-slate-300 border-slate-600";
                 if(t.type === 'keyword') colors = "bg-purple-900/50 text-purple-300 border-purple-700";
                 if(t.type === 'identifier') colors = "bg-blue-900/50 text-blue-300 border-blue-700";
-                if(t.type === 'number') colors = "bg-amber-900/50 text-amber-300 border-amber-700";
+                if(t.type === 'number' || t.type === 'boolean') colors = "bg-amber-900/50 text-amber-300 border-amber-700";
                 if(t.type === 'string') colors = "bg-yellow-900/50 text-yellow-300 border-yellow-700";
                 if(t.type === 'operator' || t.type === 'punct') colors = "bg-rose-900/50 text-rose-300 border-rose-700";
                 
@@ -368,6 +396,10 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     left = { type: 'NumericLiteral', value: Number(token.value) };
                     yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>NumericLiteral</strong> node for the number ${token.value}.` };
                 } 
+                else if (token.type === 'boolean') {
+                    left = { type: 'BooleanLiteral', value: token.value === 'true' };
+                    yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>BooleanLiteral</strong> node.` };
+                }
                 else if (token.type === 'string') {
                     left = { type: 'StringLiteral', value: token.value };
                     yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>StringLiteral</strong> node for "${token.value}".` };
@@ -377,7 +409,6 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     yield { phase: 'parsing', activeToken: token.id, explain: `Creating an <strong>Identifier</strong> node looking for the variable/function '${token.value}'.` };
                 } 
                 else if (token.value === '[') {
-                    // ADDED: Array Initialization
                     yield { phase: 'parsing', activeToken: token.id, explain: `Found '['. Starting to build an <strong>ArrayExpression</strong>.` };
                     let elements = [];
                     while (tokens[current].value !== ']') {
@@ -387,19 +418,26 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                         elements.push(elRes.value);
                         if (tokens[current].value === ',') consume(); 
                     }
-                    let endBracket = consume(); // ']'
+                    let endBracket = consume(); 
                     yield { phase: 'parsing', activeToken: endBracket.id, explain: `Found ']'. Finished building the array.` };
                     left = { type: 'ArrayExpression', elements };
                 }
+                else if (token.value === '(') {
+                    let innerIter = parseExpression();
+                    let innerRes = innerIter.next();
+                    while(!innerRes.done) { yield innerRes.value; innerRes = innerIter.next(); }
+                    left = innerRes.value;
+                    consume(); // Consume ')'
+                }
                 else {
-                    throw new Error(`Unexpected token: ${token.value}`);
+                    throw new Error(`Unexpected token during parsing: ${token.value}`);
                 }
 
-                // Handle CallExpression `func()` OR MemberExpression `arr[0]`
-                while (current < tokens.length && (tokens[current].value === '(' || tokens[current].value === '[')) {
+                // Handling Chained Expressions (Property Access and Function Calls)
+                while (current < tokens.length && (tokens[current].value === '(' || tokens[current].value === '[' || tokens[current].value === '.')) {
                     if (tokens[current].value === '(') {
-                        let paren = consume(); // '('
-                        yield { phase: 'parsing', activeToken: paren.id, explain: `Found '('. This means '${left.name}' is being called as a function. Parsing arguments...` };
+                        let paren = consume(); 
+                        yield { phase: 'parsing', activeToken: paren.id, explain: `Found '('. The preceding expression is being called as a function. Parsing arguments...` };
                         
                         let args = [];
                         while (tokens[current].value !== ')') {
@@ -409,25 +447,35 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                             args.push(argRes.value);
                             if (tokens[current].value === ',') consume(); 
                         }
-                        let endParen = consume(); // ')'
+                        let endParen = consume(); 
                         yield { phase: 'parsing', activeToken: endParen.id, explain: `Finished parsing arguments. Wrapping in a CallExpression.` };
-                        left = { type: 'CallExpression', callee: left.name, arguments: args };
+                        left = { type: 'CallExpression', callee: left, arguments: args };
                     } 
                     else if (tokens[current].value === '[') {
-                        // ADDED: Array Member Access
-                        let bracket = consume(); // '['
-                        yield { phase: 'parsing', activeToken: bracket.id, explain: `Found '[' directly after an identifier. Parsing array index/member access...` };
+                        let bracket = consume(); 
+                        yield { phase: 'parsing', activeToken: bracket.id, explain: `Found '['. Parsing computed array index/member access...` };
                         
                         let propIter = parseExpression();
                         let propRes = propIter.next();
                         while(!propRes.done) { yield propRes.value; propRes = propIter.next(); }
                         
-                        let endBracket = consume(); // ']'
-                        yield { phase: 'parsing', activeToken: endBracket.id, explain: `Finished parsing array index. Creating a MemberExpression.` };
-                        left = { type: 'MemberExpression', object: left, property: propRes.value };
+                        let endBracket = consume(); 
+                        yield { phase: 'parsing', activeToken: endBracket.id, explain: `Finished parsing computed index. Creating a MemberExpression.` };
+                        left = { type: 'MemberExpression', object: left, property: propRes.value, computed: true };
+                    }
+                    else if (tokens[current].value === '.') {
+                        let dot = consume(); 
+                        yield { phase: 'parsing', activeToken: dot.id, explain: `Found '.'. Parsing object property access (Dot Notation)...` };
+                        
+                        let propToken = consume(); 
+                        if (propToken.type !== 'identifier') throw new Error("Expected valid property name after '.'");
+                        
+                        yield { phase: 'parsing', activeToken: propToken.id, explain: `Finished parsing property '${propToken.value}'. Creating a MemberExpression.` };
+                        left = { type: 'MemberExpression', object: left, property: { type: 'Identifier', name: propToken.value }, computed: false };
                     }
                 }
 
+                // Handling Math & Logical Operators
                 if (current < tokens.length && tokens[current].type === 'operator' && tokens[current].value !== '=') {
                     let opToken = consume();
                     yield { phase: 'parsing', activeToken: opToken.id, explain: `Found operator '<strong>${opToken.value}</strong>'. Building a BinaryExpression tree.` };
@@ -490,12 +538,18 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     return { type: 'ReturnStatement', argument: argRes.value };
                 }
                 
-                if (token.type === 'keyword' && token.value === 'let') {
+                if (token.type === 'keyword' && (token.value === 'let' || token.value === 'const' || token.value === 'var')) {
                     consume(); 
                     let idToken = consume();
-                    consume(); 
                     
-                    yield { phase: 'parsing', activeToken: idToken.id, explain: `Found 'let'. Building a <strong>Variable Declaration</strong> for '${idToken.value}'. Waiting for its assigned value...` };
+                    if(tokens[current].value !== '=') {
+                        if(current < tokens.length && tokens[current].value === ';') consume();
+                        return { type: 'VariableDeclaration', identifier: idToken.value, init: null };
+                    }
+                    
+                    consume(); // '='
+                    
+                    yield { phase: 'parsing', activeToken: idToken.id, explain: `Found declaration. Building a <strong>Variable Declaration</strong> for '${idToken.value}'. Waiting for its assigned value...` };
 
                     let initIter = parseExpression();
                     let initRes = initIter.next();
@@ -542,8 +596,12 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 renderAST(node.body, div);
             }
             else if (node.type === 'CallExpression') {
-                head.innerHTML = `<span class="text-indigo-400">CallExpression</span> <span class="text-slate-500">(${node.callee})</span>`;
+                let name = "func";
+                if(node.callee.type === 'Identifier') name = node.callee.name;
+                if(node.callee.type === 'MemberExpression') name = node.callee.property.name || "[computed]";
+                head.innerHTML = `<span class="text-indigo-400">CallExpression</span> <span class="text-slate-500">(${name})</span>`;
                 div.appendChild(head);
+                renderAST(node.callee, div);
                 node.arguments.forEach(arg => renderAST(arg, div));
             }
             else if (node.type === 'ReturnStatement') {
@@ -552,7 +610,7 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 renderAST(node.argument, div);
             }
             else if (node.type === 'VariableDeclaration') {
-                head.innerHTML = `<span class="text-sky-400">VariableDeclaration</span> <span class="text-slate-500">(let ${node.identifier})</span>`;
+                head.innerHTML = `<span class="text-sky-400">VariableDeclaration</span> <span class="text-slate-500">(${node.identifier})</span>`;
                 div.appendChild(head);
                 renderAST(node.init, div);
             }
@@ -573,13 +631,13 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 node.elements.forEach(el => renderAST(el, div));
             }
             else if (node.type === 'MemberExpression') {
-                head.innerHTML = `<span class="text-pink-400">MemberExpression</span>`;
+                head.innerHTML = `<span class="text-pink-400">MemberExpression</span> <span class="text-slate-500">(${node.computed ? 'computed []' : 'dot .'})</span>`;
                 div.appendChild(head);
                 renderAST(node.object, div);
                 renderAST(node.property, div);
             }
-            else if (node.type === 'NumericLiteral') {
-                head.innerHTML = `<span class="text-emerald-400">NumericLiteral</span> <span class="text-slate-400">(${node.value})</span>`;
+            else if (node.type === 'NumericLiteral' || node.type === 'BooleanLiteral') {
+                head.innerHTML = `<span class="text-emerald-400">${node.type}</span> <span class="text-slate-400">(${node.value})</span>`;
                 div.appendChild(head);
             }
             else if (node.type === 'StringLiteral') {
@@ -603,6 +661,7 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
         }
 
         function* evaluate(node, env) {
+            if (!node) return undefined;
             let result;
 
             if (node.type === 'Program' || node.type === 'BlockStatement') {
@@ -619,14 +678,18 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
             }
             else if (node.type === 'FunctionDeclaration') {
                 env[node.id] = { type: 'Function', params: node.params, body: node.body, closure: env };
-                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Allocated the function <strong>${node.id}()</strong> into memory. It is ready to be called later.` }; 
-                logConsole(`Allocated function: ${node.id}()`);
+                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Allocated the custom function <strong>${node.id}()</strong> into memory.` }; 
             }
             else if (node.type === 'CallExpression') {
-                let resolved = resolveEnv(env, node.callee);
-                let func = resolved ? resolved[node.callee] : null;
-                if (!func || func.type !== 'Function') throw new Error(`'${node.callee}' is not a function`);
+                // 1. Evaluate what is being called
+                let calleeIter = evaluate(node.callee, env);
+                let calleeRes = calleeIter.next();
+                while(!calleeRes.done) { yield calleeRes.value; calleeRes = calleeIter.next(); }
+                let func = calleeRes.value;
 
+                if (!func) throw new Error(`Object is not a function`);
+
+                // 2. Evaluate all arguments
                 let evaluatedArgs = [];
                 for(let arg of node.arguments) {
                     let argIter = evaluate(arg, env);
@@ -635,31 +698,43 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     evaluatedArgs.push(argRes.value);
                 }
 
+                let funcName = node.callee.name || (node.callee.property ? node.callee.property.name : 'function');
+                
                 let frameId = 'frame_' + Math.random().toString(36).substr(2, 9);
-                yield { phase: 'exec', action: 'pushStack', nodeType: `Call: ${node.callee}()`, frameId, explain: `Calling <strong>${node.callee}()</strong>! Pausing the current work and pushing a new frame to the <strong>Call Stack</strong>.` };
+                yield { phase: 'exec', action: 'pushStack', nodeType: `Call: ${funcName}()`, frameId, explain: `Calling <strong>${funcName}()</strong>! Pushing frame to the Call Stack.` };
 
-                let localEnv = { __parent__: func.closure };
-                func.params.forEach((p, i) => localEnv[p] = evaluatedArgs[i]);
-                yield { phase: 'exec', action: 'updateEnv', env: localEnv, explain: `Created a new Local Memory Environment for <strong>${node.callee}()</strong>. Assigned arguments to parameters.` };
+                // 3. Execute! Native JS function vs Custom AST Function
+                if (typeof func === 'function') {
+                    // It's a native function (e.g. console.log, arr.push)
+                    result = func(...evaluatedArgs);
+                    yield { phase: 'exec', explain: `Executed native JavaScript method <strong>${funcName}</strong>.` };
+                    yield { phase: 'exec', action: 'popStack', frameId };
+                } 
+                else if (func && func.type === 'Function') {
+                    let localEnv = { __parent__: func.closure };
+                    func.params.forEach((p, i) => localEnv[p] = evaluatedArgs[i]);
+                    yield { phase: 'exec', action: 'updateEnv', env: localEnv, explain: `Created a new Memory Environment for <strong>${funcName}()</strong>.` };
 
-                let bodyIter = evaluate(func.body, localEnv);
-                let bodyRes = bodyIter.next();
-                while(!bodyRes.done) { yield bodyRes.value; bodyRes = bodyIter.next(); }
-                
-                yield { phase: 'exec', action: 'popStack', frameId, explain: `Function <strong>${node.callee}()</strong> finished! Popping it off the Call Stack and returning to the outer scope.` };
-                yield { phase: 'exec', action: 'updateEnv', env: env };
+                    let bodyIter = evaluate(func.body, localEnv);
+                    let bodyRes = bodyIter.next();
+                    while(!bodyRes.done) { yield bodyRes.value; bodyRes = bodyIter.next(); }
+                    
+                    yield { phase: 'exec', action: 'popStack', frameId, explain: `Function <strong>${funcName}()</strong> finished execution!` };
+                    yield { phase: 'exec', action: 'updateEnv', env: env };
 
-                if (bodyRes.value && bodyRes.value.__isReturn) result = bodyRes.value.value;
-                else result = undefined; 
-                
-                logConsole(`${node.callee}() returned: ${result}`);
+                    if (bodyRes.value && bodyRes.value.__isReturn) result = bodyRes.value.value;
+                    else result = undefined; 
+                } 
+                else {
+                    throw new Error(`'${funcName}' is not a function`);
+                }
             }
             else if (node.type === 'ReturnStatement') {
                 let iter = evaluate(node.argument, env);
                 let res = iter.next();
                 while(!res.done) { yield res.value; res = iter.next(); }
                 
-                yield { phase: 'exec', explain: `Evaluated the return value to be <strong>${res.value}</strong>. Packaging it to send back to the caller.` };
+                yield { phase: 'exec', explain: `Evaluated the return value. Packaging it to send back to the caller.` };
                 return { __isReturn: true, value: res.value };
             }
             else if (node.type === 'VariableDeclaration') {
@@ -671,7 +746,6 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 
                 env[node.identifier] = res.value;
                 yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Stored <strong>${node.identifier}</strong> into the Environment Memory.` };
-                logConsole(`Stored in memory: ${node.identifier}`);
                 result = res.value;
             }
             else if (node.type === 'ExpressionStatement') {
@@ -684,16 +758,32 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 let iterL = evaluate(node.left, env);
                 let resL = iterL.next();
                 while(!resL.done) { yield resL.value; resL = iterL.next(); }
+                
                 let iterR = evaluate(node.right, env);
                 let resR = iterR.next();
                 while(!resR.done) { yield resR.value; resR = iterR.next(); }
                 
-                if (node.operator === '+') result = resL.value + resR.value;
-                if (node.operator === '-') result = resL.value - resR.value;
-                if (node.operator === '*') result = resL.value * resR.value;
-                if (node.operator === '/') result = resL.value / resR.value;
+                let l = resL.value;
+                let r = resR.value;
                 
-                yield { phase: 'exec', explain: `Performed Operation: ${resL.value} ${node.operator} ${resR.value} = <strong>${result}</strong>` };
+                // Advanced Operator Logic
+                if (node.operator === '+') result = l + r;
+                if (node.operator === '-') result = l - r;
+                if (node.operator === '*') result = l * r;
+                if (node.operator === '/') result = l / r;
+                if (node.operator === '%') result = l % r;
+                if (node.operator === '==') result = l == r;
+                if (node.operator === '===') result = l === r;
+                if (node.operator === '!=') result = l != r;
+                if (node.operator === '!==') result = l !== r;
+                if (node.operator === '>') result = l > r;
+                if (node.operator === '<') result = l < r;
+                if (node.operator === '>=') result = l >= r;
+                if (node.operator === '<=') result = l <= r;
+                if (node.operator === '&&') result = l && r;
+                if (node.operator === '||') result = l || r;
+                
+                yield { phase: 'exec', explain: `Performed Operation: ${l} ${node.operator} ${r} = <strong>${result}</strong>` };
             }
             else if (node.type === 'ArrayExpression') {
                 let elements = [];
@@ -704,35 +794,45 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                     elements.push(elRes.value);
                 }
                 result = elements;
-                yield { phase: 'exec', explain: `Evaluated Array to: [${result.join(', ')}]` };
+                yield { phase: 'exec', explain: `Allocated Array: [${result.join(', ')}]` };
             }
             else if (node.type === 'MemberExpression') {
                 let objIter = evaluate(node.object, env);
                 let objRes = objIter.next();
                 while(!objRes.done) { yield objRes.value; objRes = objIter.next(); }
                 
-                let propIter = evaluate(node.property, env);
-                let propRes = propIter.next();
-                while(!propRes.done) { yield propRes.value; propRes = propIter.next(); }
+                let propName;
+                if (node.computed) {
+                    let propIter = evaluate(node.property, env);
+                    let propRes = propIter.next();
+                    while(!propRes.done) { yield propRes.value; propRes = propIter.next(); }
+                    propName = propRes.value;
+                } else {
+                    propName = node.property.name;
+                }
                 
-                result = objRes.value[propRes.value];
-                yield { phase: 'exec', explain: `Accessed index <strong>[${propRes.value}]</strong> of array. Found value: <strong>${result}</strong>` };
+                let targetObj = objRes.value;
+                result = targetObj[propName];
+
+                // If result is a native function (e.g. arr.push), bind it to the object so 'this' works natively!
+                if (typeof result === 'function') {
+                    result = result.bind(targetObj);
+                }
+                
+                yield { phase: 'exec', explain: `Accessed property <strong>[${propName}]</strong>. Found: <strong>${typeof result === 'function' ? '[Native Method]' : result}</strong>` };
             }
-            else if (node.type === 'NumericLiteral') {
-                result = node.value;
-            }
-            else if (node.type === 'StringLiteral') {
+            else if (node.type === 'NumericLiteral' || node.type === 'StringLiteral' || node.type === 'BooleanLiteral') {
                 result = node.value;
             }
             else if (node.type === 'Identifier') {
                 let resolved = resolveEnv(env, node.name);
-                if (!resolved) throw new ReferenceError(`${node.name} is not defined`);
+                if (!resolved) throw new ReferenceError(`'${node.name}' is not defined`);
                 result = resolved[node.name];
                 
-                // Keep explanation clean for arrays/functions
                 let displayVal = result;
                 if (Array.isArray(result)) displayVal = `[${result.join(', ')}]`;
                 if (result && typeof result === 'object' && result.type === 'Function') displayVal = '[Function]';
+                if (typeof result === 'object' && !Array.isArray(result) && result !== null && result.type !== 'Function') displayVal = '[Native Object]';
                 
                 yield { phase: 'exec', explain: `Looked up variable <strong>${node.name}</strong> in memory. Found: ${displayVal}` };
             }
@@ -778,6 +878,8 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                         valStr = `<span class="text-fuchsia-300 italic">[Function block]</span>`;
                     } else if (Array.isArray(env[key])) {
                         valStr = `<span class="text-teal-300">[${env[key].map(i => typeof i === 'string' ? `"${i}"` : i).join(', ')}]</span>`;
+                    } else {
+                        valStr = `<span class="text-indigo-300 italic">[Native Object]</span>`;
                     }
                 } else if (typeof env[key] === 'string') {
                     valStr = `<span class="text-yellow-300">"${env[key]}"</span>`;
@@ -870,19 +972,27 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                 setExplainer("Abstract Syntax Tree created successfully. Handing structure to the Execution Engine.", "Parser");
                 await waitNext();
 
-                // 3. Execution
+                // 3. Execution (With Global Env initialized!)
                 logConsole("Starting Interpretation...");
                 let globalFrame = 'frame_global';
                 pushStackUI('Global Execution Context', globalFrame);
                 setExplainer("Engine spins up! Creating the Global Execution Context and mounting it to the Call Stack.", "Interpreter");
                 await waitNext();
 
-                let env = {};
+                // Inject Native Console into the root environment
+                let env = {
+                    console: {
+                        log: (...args) => logConsole(args.join(' ')),
+                        error: (...args) => logConsole(args.join(' '), true)
+                    }
+                };
+                yield { phase: 'exec', action: 'updateEnv', env: env };
+
                 const execGenerator = evaluate(ast, env);
                 let execRes = execGenerator.next();
 
                 while (!execRes.done) {
-                    if (execRes.value.phase === 'exec') {
+                    if (execRes.value && execRes.value.phase === 'exec') {
                         if (execRes.value.action === 'pushStack') {
                             pushStackUI(execRes.value.nodeType, execRes.value.frameId);
                         } else if (execRes.value.action === 'popStack') {
@@ -891,7 +1001,7 @@ let bestPlayer = getRecord(users[1], scores[1]);`;
                             renderEnv(execRes.value.env);
                         }
                     }
-                    if(execRes.value.explain) setExplainer(execRes.value.explain, 'Interpreter');
+                    if(execRes.value && execRes.value.explain) setExplainer(execRes.value.explain, 'Interpreter');
                     await waitNext();
                     execRes = execGenerator.next();
                 }
