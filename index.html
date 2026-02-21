@@ -47,9 +47,9 @@
     <header class="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-20 shadow-md">
         <div class="flex items-center gap-3">
             <i class="fa-solid fa-code-compare text-sky-400 text-2xl"></i>
-            <h1 class="text-xl font-bold text-white tracking-wide">JS Visual Compiler <span class="text-sky-500 font-mono text-sm">v2.0</span></h1>
+            <h1 class="text-xl font-bold text-white tracking-wide">JS Visual Compiler <span class="text-sky-500 font-mono text-sm">v2.1</span></h1>
             <span class="bg-slate-800 border border-slate-700 text-xs px-2 py-1 rounded text-slate-300 ml-2 shadow-inner">
-                Now supports <code>function()</code>
+                Now supports <code>[]</code> Arrays & Strings
             </span>
         </div>
         <div class="flex gap-4 items-center">
@@ -183,19 +183,19 @@
         });
 
         const defaultCode = 
-`// Let's learn how JavaScript compiles!
+`// The compiler now understands Arrays and Strings!
 
-// 1. First, we allocate variables in memory
-let price = 100;
-let tax = 5;
+// 1. We allocate an array in memory
+let users = ["Alice", "Bob", "Charlie"];
+let scores = [85, 92, 78];
 
-// 2. We define a function (stored in memory for later)
-function calculateTotal(p, t) {
-    return p + t;
+// 2. We can pass arrays/elements to functions
+function getRecord(user, score) {
+    return user + " scored " + score;
 }
 
-// 3. Finally, we call the function and execute its block
-let total = calculateTotal(price, tax);`;
+// 3. We call the function accessing array indexes!
+let bestPlayer = getRecord(users[1], scores[1]);`;
         
         editor.setValue(defaultCode, -1);
 
@@ -269,8 +269,24 @@ let total = calculateTotal(price, tax);`;
 
                 if (/\s/.test(char)) { current++; continue; }
 
-                if ([';', '=', '+', '-', '*', '/', '(', ')', '{', '}', ','].includes(char)) {
-                    let type = ([';', '(', ')', '{', '}', ','].includes(char)) ? 'punct' : 'operator';
+                // ADDED: Strings
+                if (char === '"' || char === "'") {
+                    let quote = char;
+                    let value = '';
+                    current++; // skip opening quote
+                    while (current < code.length && code[current] !== quote) {
+                        value += code[current];
+                        current++;
+                    }
+                    current++; // skip closing quote
+                    tokens.push({ type: 'string', value, id: `tok_${tokens.length}` });
+                    yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found a string literal: <strong>"${value}"</strong>.` };
+                    continue;
+                }
+
+                // ADDED: Array Brackets [ and ]
+                if ([';', '=', '+', '-', '*', '/', '(', ')', '{', '}', ',', '[', ']'].includes(char)) {
+                    let type = ([';', '(', ')', '{', '}', ',', '[', ']'].includes(char)) ? 'punct' : 'operator';
                     tokens.push({ type, value: char, id: `tok_${tokens.length}` });
                     yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found symbol <strong>${char}</strong>. Storing it as a <span class="text-purple-400">${type}</span> token.` };
                     current++;
@@ -299,7 +315,7 @@ let total = calculateTotal(price, tax);`;
                         yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Recognized reserved word <strong>${value}</strong>. Categorized as a <span class="text-purple-400">keyword</span> token.` };
                     } else {
                         tokens.push({ type: 'identifier', value, id: `tok_${tokens.length}` });
-                        yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found string of letters. Treating <strong>${value}</strong> as an <span class="text-blue-400">identifier</span> (variable/function name).` };
+                        yield { tokens, active: tokens.length - 1, phase: 'lexing', explain: `Found string of letters. Treating <strong>${value}</strong> as an <span class="text-blue-400">identifier</span>.` };
                     }
                     continue;
                 }
@@ -322,6 +338,7 @@ let total = calculateTotal(price, tax);`;
                 if(t.type === 'keyword') colors = "bg-purple-900/50 text-purple-300 border-purple-700";
                 if(t.type === 'identifier') colors = "bg-blue-900/50 text-blue-300 border-blue-700";
                 if(t.type === 'number') colors = "bg-amber-900/50 text-amber-300 border-amber-700";
+                if(t.type === 'string') colors = "bg-yellow-900/50 text-yellow-300 border-yellow-700";
                 if(t.type === 'operator' || t.type === 'punct') colors = "bg-rose-900/50 text-rose-300 border-rose-700";
                 
                 badge.className = `px-2 py-1 rounded text-xs border ${colors} token-badge ${i === activeIndex ? 'active-element' : ''}`;
@@ -350,11 +367,37 @@ let total = calculateTotal(price, tax);`;
                 if (token.type === 'number') {
                     left = { type: 'NumericLiteral', value: Number(token.value) };
                     yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>NumericLiteral</strong> node for the number ${token.value}.` };
-                } else if (token.type === 'identifier') {
+                } 
+                else if (token.type === 'string') {
+                    left = { type: 'StringLiteral', value: token.value };
+                    yield { phase: 'parsing', activeToken: token.id, explain: `Creating a <strong>StringLiteral</strong> node for "${token.value}".` };
+                }
+                else if (token.type === 'identifier') {
                     left = { type: 'Identifier', name: token.value };
                     yield { phase: 'parsing', activeToken: token.id, explain: `Creating an <strong>Identifier</strong> node looking for the variable/function '${token.value}'.` };
-                    
-                    if (current < tokens.length && tokens[current].value === '(') {
+                } 
+                else if (token.value === '[') {
+                    // ADDED: Array Initialization
+                    yield { phase: 'parsing', activeToken: token.id, explain: `Found '['. Starting to build an <strong>ArrayExpression</strong>.` };
+                    let elements = [];
+                    while (tokens[current].value !== ']') {
+                        let elIter = parseExpression();
+                        let elRes = elIter.next();
+                        while(!elRes.done) { yield elRes.value; elRes = elIter.next(); }
+                        elements.push(elRes.value);
+                        if (tokens[current].value === ',') consume(); 
+                    }
+                    let endBracket = consume(); // ']'
+                    yield { phase: 'parsing', activeToken: endBracket.id, explain: `Found ']'. Finished building the array.` };
+                    left = { type: 'ArrayExpression', elements };
+                }
+                else {
+                    throw new Error(`Unexpected token: ${token.value}`);
+                }
+
+                // Handle CallExpression `func()` OR MemberExpression `arr[0]`
+                while (current < tokens.length && (tokens[current].value === '(' || tokens[current].value === '[')) {
+                    if (tokens[current].value === '(') {
                         let paren = consume(); // '('
                         yield { phase: 'parsing', activeToken: paren.id, explain: `Found '('. This means '${left.name}' is being called as a function. Parsing arguments...` };
                         
@@ -367,16 +410,27 @@ let total = calculateTotal(price, tax);`;
                             if (tokens[current].value === ',') consume(); 
                         }
                         let endParen = consume(); // ')'
-                        yield { phase: 'parsing', activeToken: endParen.id, explain: `Finished parsing arguments for <strong>${left.name}()</strong>. Wrapping in a CallExpression.` };
+                        yield { phase: 'parsing', activeToken: endParen.id, explain: `Finished parsing arguments. Wrapping in a CallExpression.` };
                         left = { type: 'CallExpression', callee: left.name, arguments: args };
+                    } 
+                    else if (tokens[current].value === '[') {
+                        // ADDED: Array Member Access
+                        let bracket = consume(); // '['
+                        yield { phase: 'parsing', activeToken: bracket.id, explain: `Found '[' directly after an identifier. Parsing array index/member access...` };
+                        
+                        let propIter = parseExpression();
+                        let propRes = propIter.next();
+                        while(!propRes.done) { yield propRes.value; propRes = propIter.next(); }
+                        
+                        let endBracket = consume(); // ']'
+                        yield { phase: 'parsing', activeToken: endBracket.id, explain: `Finished parsing array index. Creating a MemberExpression.` };
+                        left = { type: 'MemberExpression', object: left, property: propRes.value };
                     }
-                } else {
-                    throw new Error(`Unexpected token: ${token.value}`);
                 }
 
                 if (current < tokens.length && tokens[current].type === 'operator' && tokens[current].value !== '=') {
                     let opToken = consume();
-                    yield { phase: 'parsing', activeToken: opToken.id, explain: `Found mathematical operator '<strong>${opToken.value}</strong>'. Building a BinaryExpression tree.` };
+                    yield { phase: 'parsing', activeToken: opToken.id, explain: `Found operator '<strong>${opToken.value}</strong>'. Building a BinaryExpression tree.` };
                     
                     let rightIter = parseExpression();
                     let rightRes = rightIter.next();
@@ -513,8 +567,23 @@ let total = calculateTotal(price, tax);`;
                 renderAST(node.left, div);
                 renderAST(node.right, div);
             }
+            else if (node.type === 'ArrayExpression') {
+                head.innerHTML = `<span class="text-teal-400">ArrayExpression</span>`;
+                div.appendChild(head);
+                node.elements.forEach(el => renderAST(el, div));
+            }
+            else if (node.type === 'MemberExpression') {
+                head.innerHTML = `<span class="text-pink-400">MemberExpression</span>`;
+                div.appendChild(head);
+                renderAST(node.object, div);
+                renderAST(node.property, div);
+            }
             else if (node.type === 'NumericLiteral') {
                 head.innerHTML = `<span class="text-emerald-400">NumericLiteral</span> <span class="text-slate-400">(${node.value})</span>`;
+                div.appendChild(head);
+            }
+            else if (node.type === 'StringLiteral') {
+                head.innerHTML = `<span class="text-yellow-400">StringLiteral</span> <span class="text-slate-400">("${node.value}")</span>`;
                 div.appendChild(head);
             }
             else if (node.type === 'Identifier') {
@@ -601,8 +670,8 @@ let total = calculateTotal(price, tax);`;
                 while(!res.done) { yield res.value; res = iter.next(); }
                 
                 env[node.identifier] = res.value;
-                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Stored <strong>${node.identifier}</strong> with a value of <strong>${res.value}</strong> into the Environment Memory.` };
-                logConsole(`Stored in memory: ${node.identifier} = ${res.value}`);
+                yield { phase: 'exec', action: 'updateEnv', env: {...env}, explain: `Stored <strong>${node.identifier}</strong> into the Environment Memory.` };
+                logConsole(`Stored in memory: ${node.identifier}`);
                 result = res.value;
             }
             else if (node.type === 'ExpressionStatement') {
@@ -624,16 +693,48 @@ let total = calculateTotal(price, tax);`;
                 if (node.operator === '*') result = resL.value * resR.value;
                 if (node.operator === '/') result = resL.value / resR.value;
                 
-                yield { phase: 'exec', explain: `Performed Math: ${resL.value} ${node.operator} ${resR.value} = <strong>${result}</strong>` };
+                yield { phase: 'exec', explain: `Performed Operation: ${resL.value} ${node.operator} ${resR.value} = <strong>${result}</strong>` };
+            }
+            else if (node.type === 'ArrayExpression') {
+                let elements = [];
+                for (let elNode of node.elements) {
+                    let elIter = evaluate(elNode, env);
+                    let elRes = elIter.next();
+                    while(!elRes.done) { yield elRes.value; elRes = elIter.next(); }
+                    elements.push(elRes.value);
+                }
+                result = elements;
+                yield { phase: 'exec', explain: `Evaluated Array to: [${result.join(', ')}]` };
+            }
+            else if (node.type === 'MemberExpression') {
+                let objIter = evaluate(node.object, env);
+                let objRes = objIter.next();
+                while(!objRes.done) { yield objRes.value; objRes = objIter.next(); }
+                
+                let propIter = evaluate(node.property, env);
+                let propRes = propIter.next();
+                while(!propRes.done) { yield propRes.value; propRes = propIter.next(); }
+                
+                result = objRes.value[propRes.value];
+                yield { phase: 'exec', explain: `Accessed index <strong>[${propRes.value}]</strong> of array. Found value: <strong>${result}</strong>` };
             }
             else if (node.type === 'NumericLiteral') {
+                result = node.value;
+            }
+            else if (node.type === 'StringLiteral') {
                 result = node.value;
             }
             else if (node.type === 'Identifier') {
                 let resolved = resolveEnv(env, node.name);
                 if (!resolved) throw new ReferenceError(`${node.name} is not defined`);
                 result = resolved[node.name];
-                yield { phase: 'exec', explain: `Looked up variable <strong>${node.name}</strong> in memory. Found value: ${result}` };
+                
+                // Keep explanation clean for arrays/functions
+                let displayVal = result;
+                if (Array.isArray(result)) displayVal = `[${result.join(', ')}]`;
+                if (result && typeof result === 'object' && result.type === 'Function') displayVal = '[Function]';
+                
+                yield { phase: 'exec', explain: `Looked up variable <strong>${node.name}</strong> in memory. Found: ${displayVal}` };
             }
 
             return result;
@@ -672,8 +773,14 @@ let total = calculateTotal(price, tax);`;
                 if (key === '__parent__') continue; 
                 
                 let valStr = env[key];
-                if (env[key] && typeof env[key] === 'object' && env[key].type === 'Function') {
-                    valStr = `<span class="text-fuchsia-300 italic">[Function block]</span>`;
+                if (env[key] && typeof env[key] === 'object') {
+                    if (env[key].type === 'Function') {
+                        valStr = `<span class="text-fuchsia-300 italic">[Function block]</span>`;
+                    } else if (Array.isArray(env[key])) {
+                        valStr = `<span class="text-teal-300">[${env[key].map(i => typeof i === 'string' ? `"${i}"` : i).join(', ')}]</span>`;
+                    }
+                } else if (typeof env[key] === 'string') {
+                    valStr = `<span class="text-yellow-300">"${env[key]}"</span>`;
                 }
 
                 const tr = document.createElement('tr');
